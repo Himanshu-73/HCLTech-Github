@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TaskFlow for Students</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+
+  <!-- Sidebar: views, projects, focus timer -->
+  <aside class="sidebar" id="sidebar" aria-label="Sidebar">
+    <div class="brand"><i aria-hidden="true">✓</i>TaskFlow</div>
+    <nav class="nav" id="nav" aria-label="Views"></nav>
+    <section aria-label="Subjects">
+      <div class="side-h"><span>Subjects</span><button id="addProject" type="button" aria-label="Add subject" data-ic="plus"></button></div>
+      <nav class="nav" id="projects"></nav>
+    </section>
+    <section class="focus" aria-label="Focus timer">
+      <h2><span data-ic="timer"></span>Focus session</h2>
+      <div class="time" id="fTime" aria-live="off">25:00</div>
+      <p id="fTask">Pick a task to focus on</p>
+      <div class="row">
+        <button class="chip-btn primary" id="fToggle" type="button"><span data-ic="play"></span><b>Start</b></button>
+        <button class="chip-btn" id="fReset" type="button" aria-label="Reset timer" data-ic="reset"></button>
+      </div>
+      <p id="fCount" style="margin:10px 0 0"></p>
+    </section>
+    <button class="nav-btn" id="themeBtn" type="button"><span data-ic="moon"></span>Dark mode</button>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <div>
+    <header class="top">
+      <button class="menu" id="menuBtn" type="button" aria-label="Open menu" data-ic="menu"></button>
+      <label class="search"><span data-ic="search"></span><span class="sr">Search tasks</span>
+        <input id="search" type="search" placeholder="Search all tasks" autocomplete="off"><kbd>/</kbd></label>
+    </header>
+
+    <main class="wrap">
+      <div class="view-head">
+        <div><h1 id="vTitle">All tasks</h1><p id="vSub"></p></div>
+        <div class="ring" id="ring" hidden></div>
+      </div>
+      <form class="quick" id="quick" autocomplete="off">
+        <label class="sr" for="qInput">Quick add task</label>
+        <input id="qInput" placeholder="Add a task… try “Read chapter 4 tomorrow #lit !1”">
+        <div class="chips" id="chips" aria-live="polite"></div>
+      </form>
+      <p class="hint"><kbd>Q</kbd> add &nbsp; <kbd>/</kbd> search &nbsp; <kbd>Esc</kbd> close &nbsp;·&nbsp; <b>#subject</b> &nbsp; <b>!1</b>–<b>!3</b> priority &nbsp; <b>today · tomorrow · mon–sun · +3d</b></p>
+      <div id="list"></div>
+    </main>
+  </div>
+
+  <!-- Task details drawer -->
+  <aside class="drawer" id="drawer" aria-label="Task details" aria-hidden="true">
+    <div class="d-head">
+      <button class="chip-btn" id="dDone" type="button">Complete</button>
+      <button class="chip-btn" id="dClose" type="button" aria-label="Close details" data-ic="x"></button>
+    </div>
+    <div class="d-body">
+      <textarea class="d-title" id="dTitle" rows="2" aria-label="Task title"></textarea>
+      <div class="grid3">
+        <label class="field">Due<input type="date" id="dDue"></label>
+        <label class="field">Priority<select id="dPri"><option value="1">High</option><option value="2">Medium</option><option value="3">Low</option><option value="4">None</option></select></label>
+        <label class="field">Subject<select id="dProj"></select></label>
+      </div>
+      <label class="field">Notes<textarea id="dNotes" placeholder="Links, page numbers, anything to remember"></textarea></label>
+      <section aria-label="Subtasks">
+        <div class="field">Subtasks</div>
+        <div id="subs"></div>
+        <label class="sub-add"><span class="sr">Add subtask</span><input id="subInput" placeholder="Add a subtask and press Enter"></label>
+      </section>
+    </div>
+    <div class="d-foot">
+      <button class="chip-btn" id="dFocus" type="button"><span data-ic="timer"></span>Focus on this</button>
+      <button class="chip-btn danger" id="dDelete" type="button"><span data-ic="trash"></span>Delete</button>
+    </div>
+  </aside>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+/* ==========================================================
+   TaskFlow for Students — vanilla ES6+ app
+   Sections: setup, storage, dates, quick-add parser, timer,
+   rendering, drawer, events, init
+   ========================================================== */
+(() => {
+'use strict';
+
+/* ---------- Setup ---------- */
+const KEY = 'taskflow.v2', OLD = 'studentTaskManager.v1';
+const PALETTE = ['#4a7c68', '#c4533f', '#4c7cb5', '#cf8a1f', '#8a6bb0', '#3e8f9c', '#b0627a'];
+const IC = {
+  all: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+  today: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  upcoming: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  completed: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>', menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>', check: '<path d="m5 12 5 5 9-10"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/>',
+  play: '<path d="M7 5v14l12-7z"/>', pause: '<path d="M8 5v14M16 5v14"/>',
+  reset: '<path d="M4 12a8 8 0 1 0 3-6.2M4 4v4h4"/>',
+  list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+  cal: '<rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16"/>',
+  sprout: '<path d="M12 21v-9M12 12c0-4 3-6 7-6 0 4-3 6-7 6zM12 15c0-3-2-5-6-5 0 3 2 5 6 5z"/>'
+};
+const ic = (n) => `<svg viewBox="0 0 24 24" aria-hidden="true">${IC[n]}</svg>`;
+const $ = (s) => document.querySelector(s);
+const esc = (s = '') => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36);
+
+const state = {
+  tasks: [], theme: null, sessions: {}, view: 'all', search: '', open: null,
+  projects: [
+    { name: 'Mathematics', color: PALETTE[2] }, { name: 'Physics', color: PALETTE[4] },
+    { name: 'Computer Science', color: PALETTE[0] }, { name: 'Literature', color: PALETTE[3] }
+  ]
+};
+const byId = (id) => state.tasks.find((t) => t.id === id);
+const projColor = (n) => (state.projects.find((p) => p.name === n) || {}).color || 'var(--p4)';
+
+/* ---------- Dates ---------- */
+const pad = (n) => String(n).padStart(2, '0');
+const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const today = () => iso(new Date());
+const parts = (s) => s.split('-').map(Number);
+const addDays = (s, n) => { const [y, m, d] = parts(s); return iso(new Date(y, m - 1, d + n)); };
+const fmt = (s, o) => { const [y, m, d] = parts(s); return new Date(y, m - 1, d).toLocaleDateString(undefined, o); };
+const dueLabel = (d) => d === today() ? 'Today' : d === addDays(today(), 1) ? 'Tomorrow' : fmt(d, { weekday: 'short', day: 'numeric', month: 'short' });
+const groupLabel = (d) => !d ? 'No date' : d < today() ? 'Overdue' : d === today() ? 'Today'
+  : d === addDays(today(), 1) ? 'Tomorrow' : fmt(d, { weekday: 'long', day: 'numeric', month: 'short' });
+
+/* ---------- Storage (guarded) ---------- */
+const save = () => {
+  try { localStorage.setItem(KEY, JSON.stringify({ tasks: state.tasks, projects: state.projects, theme: state.theme, sessions: state.sessions })); }
+  catch (e) { toast('Browser storage is unavailable, so changes will not be kept.'); }
+};
+const load = () => {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (raw) { Object.assign(state, JSON.parse(raw)); return; }
+    const old = JSON.parse(localStorage.getItem(OLD) || 'null'); // migrate v1 tasks
+    if (old && Array.isArray(old.tasks)) {
+      state.tasks = old.tasks.map((o) => ({
+        id: o.id || uid(), title: o.title, notes: o.description || '', due: o.dueDate || '',
+        priority: { high: 1, medium: 2, low: 3 }[o.priority] || 4, project: o.subject && o.subject !== 'Other' ? o.subject : '',
+        done: !!o.completed, doneAt: o.completed ? today() : '', subs: [], createdAt: o.createdAt || Date.now()
+      }));
+      state.tasks.forEach((t) => { if (t.project && !state.projects.some((p) => p.name === t.project)) state.projects.push({ name: t.project, color: PALETTE[state.projects.length % PALETTE.length] }); });
+    }
+  } catch (e) { console.error('Load failed', e); }
+};
+
+/* ---------- Toast with optional action ---------- */
+let toastTimer;
+function toast(msg, label, fn) {
+  const el = $('#toast');
+  el.innerHTML = `<span>${esc(msg)}</span>${label ? `<button type="button">${esc(label)}</button>` : ''}`;
+  if (label) el.querySelector('button').onclick = () => { fn(); el.classList.remove('show'); };
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), label ? 5000 : 2400);
+}
+
+/* ---------- Quick-add parser: "Read ch.4 tomorrow #lit !1" ---------- */
+const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const dateWord = (w) => {
+  if (w === 'today') return today();
+  if (w === 'tomorrow' || w === 'tmrw') return addDays(today(), 1);
+  const diff = (DAYS.indexOf(w) - new Date().getDay() + 7) % 7 || 7;
+  return addDays(today(), diff);
+};
+const parse = (raw) => {
+  let t = raw; const out = { priority: 4, project: '', due: '' };
+  t = t.replace(/(^|\s)#(\S+)/, (m, s, n) => {
+    const p = state.projects.find((p) => p.name.toLowerCase().replace(/\s/g, '').startsWith(n.toLowerCase()));
+    if (p) { out.project = p.name; return s; } return m;
+  });
+  t = t.replace(/(^|\s)!([1-3])(?=\s|$)/, (m, s, n) => { out.priority = +n; return s; });
+  t = t.replace(/(^|\s)\+(\d{1,2})d\s*$/i, (m, s, n) => { out.due = addDays(today(), +n); return s; });
+  if (!out.due) t = t.replace(/(^|\s)@?(today|tomorrow|tmrw|mon|tue|wed|thu|fri|sat|sun)\s*$/i, (m, s, w) => { out.due = dateWord(w.toLowerCase()); return s; });
+  out.title = t.trim().replace(/\s+/g, ' ');
+  return out;
+};
+
+/* ---------- Focus timer (Pomodoro) ---------- */
+const T = { dur: 1500, left: 1500, run: false, end: 0, id: null, task: '' };
+const drawTimer = () => {
+  const m = pad(Math.floor(T.left / 60)), s = pad(T.left % 60);
+  $('#fTime').textContent = `${m}:${s}`;
+  $('#fTask').textContent = T.task || 'Pick a task to focus on';
+  $('#fToggle').innerHTML = `${ic(T.run ? 'pause' : 'play')}<b>${T.run ? 'Pause' : 'Start'}</b>`;
+  const n = state.sessions[today()] || 0;
+  $('#fCount').textContent = `${n} focus session${n === 1 ? '' : 's'} today`;
+  document.title = T.run ? `${m}:${s} · TaskFlow` : 'TaskFlow for Students';
+};
+const tick = () => {
+  T.left = Math.max(0, Math.round((T.end - Date.now()) / 1000));
+  if (T.left === 0) {
+    T.run = false; clearInterval(T.id); T.left = T.dur;
+    state.sessions[today()] = (state.sessions[today()] || 0) + 1; save();
+    toast('Session complete. Take a 5 minute break.');
+  }
+  drawTimer();
+};
+const toggleTimer = () => {
+  if (T.run) { T.run = false; clearInterval(T.id); }
+  else { T.run = true; T.end = Date.now() + T.left * 1000; T.id = setInterval(tick, 500); }
+  drawTimer();
+};
+const resetTimer = () => { T.run = false; clearInterval(T.id); T.left = T.dur; drawTimer(); };
+
+/* ---------- Views & filtering ---------- */
+const inView = (t) => {
+  const td = today(), v = state.view;
+  if (v === 'all') return !t.done;
+  if (v === 'today') return !t.done && t.due && t.due <= td;
+  if (v === 'upcoming') return !t.done && t.due > td;
+  if (v === 'completed') return t.done;
+  return !t.done && t.project === v.slice(2);
+};
+const visible = () => {
+  const q = state.search.trim().toLowerCase();
+  const list = q
+    ? state.tasks.filter((t) => `${t.title} ${t.notes}`.toLowerCase().includes(q))
+    : state.tasks.filter(inView);
+  const key = (t) => t.due || '9999-12-31';
+  return list.sort((a, b) => state.view === 'completed' && !q
+    ? (b.doneAt || '').localeCompare(a.doneAt || '')
+    : key(a).localeCompare(key(b)) || a.priority - b.priority || a.createdAt - b.createdAt);
+};
+
+/* ---------- Rendering ---------- */
+const NAV = [['all', 'All tasks', 'all'], ['today', 'Today', 'today'], ['upcoming', 'Upcoming', 'upcoming'], ['completed', 'Completed', 'completed']];
+const count = (id) => { const keep = state.view; state.view = id; const n = state.tasks.filter(inView).length; state.view = keep; return n; };
+
+const renderNav = () => {
+  const cur = (id) => state.view === id && !state.search ? 'aria-current="page"' : '';
+  $('#nav').innerHTML = NAV.map(([id, label, icon]) =>
+    `<button class="nav-btn" data-view="${id}" ${cur(id)}>${ic(icon)}${label}<span class="n">${id === 'completed' ? '' : count(id) || ''}</span></button>`).join('');
+  $('#projects').innerHTML = state.projects.map((p) =>
+    `<button class="nav-btn" data-view="p:${esc(p.name)}" ${cur('p:' + p.name)}><i class="dot" style="background:${p.color}"></i>${esc(p.name)}<span class="n">${count('p:' + p.name) || ''}</span></button>`).join('');
+};
+
+const rowHTML = (t) => {
+  const late = t.due && !t.done && t.due < today();
+  const subs = t.subs || [], sd = subs.filter((s) => s.done).length;
+  const inProject = state.view.startsWith('p:') && !state.search;
+  return `<li class="task ${t.done ? 'done' : ''}" data-id="${t.id}">
+    <button class="check" data-a="check" data-p="${t.priority}" aria-label="${t.done ? 'Mark incomplete' : 'Complete'}: ${esc(t.title)}">${ic('check')}</button>
+    <div class="body"><button class="title" data-a="open">${esc(t.title)}</button>
+      <div class="meta">
+        ${t.due ? `<span class="${late ? 'late' : t.due === today() ? 'soon' : ''}">${ic('cal')}${late ? 'Overdue · ' : ''}${dueLabel(t.due)}</span>` : ''}
+        ${subs.length ? `<span>${ic('list')}${sd}/${subs.length}</span>` : ''}
+        ${t.project && !inProject ? `<span><i class="dot" style="background:${projColor(t.project)};margin:0"></i>${esc(t.project)}</span>` : ''}
+      </div></div></li>`;
+};
+
+const EMPTY = {
+  all: ['Nothing on your plate', 'Add a task above and give it a due date.'],
+  today: ['A clear day', 'Nothing is due. Rest up or get ahead with a quick add.'],
+  upcoming: ['Nothing scheduled ahead', 'Tasks with a future date will line up here.'],
+  completed: ['No finished tasks yet', 'Complete a task and it will show up here.'],
+  project: ['This subject is empty', 'Add a task and it will be filed here automatically.'],
+  search: ['No matches', 'Try a different word or clear the search.']
+};
+
+const renderMain = () => {
+  const list = visible(), v = state.view, q = state.search.trim();
+  const proj = v.startsWith('p:') ? v.slice(2) : '';
+  $('#vTitle').textContent = q ? 'Search results' : proj || (NAV.find((n) => n[0] === v) || [])[1];
+  $('#vSub').textContent = v === 'today' && !q ? fmt(today(), { weekday: 'long', day: 'numeric', month: 'long' }) : `${list.length} task${list.length === 1 ? '' : 's'}`;
+
+  // Daily progress ring (Today view only)
+  const ring = $('#ring'), td = today();
+  const pool = state.tasks.filter((t) => t.due === td || t.doneAt === td), done = pool.filter((t) => t.done).length;
+  ring.hidden = v !== 'today' || !!q;
+  if (!ring.hidden) {
+    const pct = pool.length ? done / pool.length : 0;
+    ring.innerHTML = `<svg viewBox="0 0 64 64" role="img" aria-label="${done} of ${pool.length} done today"><circle cx="32" cy="32" r="26" stroke="var(--line)"/><circle cx="32" cy="32" r="26" stroke="var(--accent)" stroke-dasharray="${(163.4 * pct).toFixed(1)} 163.4"/></svg><b>${done}/${pool.length}</b>`;
+  }
+
+  if (!list.length) {
+    const [h, p] = EMPTY[q ? 'search' : proj ? 'project' : v];
+    $('#list').innerHTML = `<div class="empty">${ic('sprout')}<h2>${h}</h2><p>${p}</p></div>`;
+    return;
+  }
+  if ((v === 'completed' && !q)) { $('#list').innerHTML = `<ul class="tasks">${list.map(rowHTML).join('')}</ul>`; return; }
+  const groups = [];
+  list.forEach((t) => {
+    const l = q ? 'Matches' : groupLabel(t.done ? '' : t.due);
+    let g = groups[groups.length - 1];
+    if (!g || g.l !== l) groups.push(g = { l, items: [] });
+    g.items.push(t);
+  });
+  $('#list').innerHTML = groups.map((g) =>
+    `<section class="group"><h2 class="${g.l === 'Overdue' ? 'over' : ''}">${g.l}<span>${g.items.length}</span></h2><ul class="tasks">${g.items.map(rowHTML).join('')}</ul></section>`).join('');
+};
+
+const render = () => { renderNav(); renderMain(); };
+
+/* ---------- Task actions ---------- */
+const addTask = (f) => {
+  state.tasks.push({ id: uid(), notes: '', subs: [], done: false, doneAt: '', createdAt: Date.now(), ...f });
+  save(); render();
+};
+const toggleDone = (id) => {
+  const t = byId(id); if (!t) return;
+  t.done = !t.done; t.doneAt = t.done ? today() : '';
+  save(); render(); if (state.open === id) fillDrawer(t);
+};
+const removeTask = (id) => {
+  const i = state.tasks.findIndex((t) => t.id === id); if (i < 0) return;
+  const [gone] = state.tasks.splice(i, 1);
+  closeDrawer(); save(); render();
+  toast('Task deleted', 'Undo', () => { state.tasks.splice(i, 0, gone); save(); render(); });
+};
+
+/* ---------- Drawer ---------- */
+const D = { title: $('#dTitle'), notes: $('#dNotes'), due: $('#dDue'), pri: $('#dPri'), proj: $('#dProj'), subs: $('#subs') };
+const renderSubs = (t) => {
+  D.subs.innerHTML = (t.subs || []).map((s) =>
+    `<div class="sub ${s.done ? 'done' : ''}" data-sid="${s.id}"><button class="check" data-a="stoggle" aria-label="Toggle subtask">${ic('check')}</button><span>${esc(s.text)}</span><button data-a="sdel" aria-label="Delete subtask">${ic('x')}</button></div>`).join('');
+  D.subs.querySelectorAll('.sub.done .check').forEach((c) => { c.style.cssText = 'background:var(--accent);border-color:var(--accent);color:var(--accent-ink)'; });
+};
+function fillDrawer(t) {
+  D.title.value = t.title; D.notes.value = t.notes || ''; D.due.value = t.due || ''; D.pri.value = t.priority;
+  D.proj.innerHTML = '<option value="">No subject</option>' + state.projects.map((p) => `<option>${esc(p.name)}</option>`).join('');
+  D.proj.value = t.project || '';
+  $('#dDone').textContent = t.done ? 'Reopen' : 'Complete';
+  renderSubs(t);
+}
+const openDrawer = (id) => {
+  const t = byId(id); if (!t) return;
+  state.open = id; fillDrawer(t);
+  const d = $('#drawer'); d.classList.add('open'); d.setAttribute('aria-hidden', 'false');
+};
+function closeDrawer() { state.open = null; const d = $('#drawer'); d.classList.remove('open'); d.setAttribute('aria-hidden', 'true'); }
+const edit = (fn) => { const t = byId(state.open); if (t) { fn(t); save(); render(); } };
+
+/* ---------- Events ---------- */
+$('#list').addEventListener('click', (e) => {
+  const li = e.target.closest('.task'); if (!li) return;
+  if (e.target.closest('[data-a=check]')) {
+    li.classList.add('ticked'); // brief confirmation before the task leaves the view
+    setTimeout(() => toggleDone(li.dataset.id), 320);
+  } else openDrawer(li.dataset.id);
+});
+const navClick = (e) => {
+  const b = e.target.closest('[data-view]'); if (!b) return;
+  state.view = b.dataset.view; state.search = ''; $('#search').value = '';
+  $('#sidebar').classList.remove('open'); $('#scrim').classList.remove('show'); render();
+};
+$('#nav').addEventListener('click', navClick);
+$('#projects').addEventListener('click', navClick);
+$('#addProject').addEventListener('click', () => {
+  const name = (prompt('Subject name') || '').trim();
+  if (!name || state.projects.some((p) => p.name.toLowerCase() === name.toLowerCase())) return;
+  state.projects.push({ name, color: PALETTE[state.projects.length % PALETTE.length] });
+  state.view = 'p:' + name; save(); render();
+});
+
+$('#search').addEventListener('input', (e) => { state.search = e.target.value; render(); });
+$('#qInput').addEventListener('input', (e) => {
+  const p = parse(e.target.value), c = [];
+  if (p.project) c.push(`<span class="tag"><i class="dot" style="background:${projColor(p.project)};margin:0"></i>${esc(p.project)}</span>`);
+  if (p.due) c.push(`<span class="tag">${ic('cal')}${dueLabel(p.due)}</span>`);
+  if (p.priority < 4) c.push(`<span class="tag">Priority ${p.priority}</span>`);
+  $('#chips').innerHTML = c.join('');
+});
+$('#quick').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const p = parse($('#qInput').value); if (!p.title) return;
+  // Context-aware defaults: file into the open subject, or date it today
+  if (!p.project && state.view.startsWith('p:')) p.project = state.view.slice(2);
+  if (!p.due && state.view === 'today') p.due = today();
+  addTask({ title: p.title, due: p.due, priority: p.priority, project: p.project });
+  $('#qInput').value = ''; $('#chips').innerHTML = '';
+});
+
+// Drawer fields
+D.title.addEventListener('input', () => { const v = D.title.value.trim(); if (v) edit((t) => { t.title = v; }); });
+D.title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); D.title.blur(); } });
+D.notes.addEventListener('input', () => edit((t) => { t.notes = D.notes.value; }));
+D.due.addEventListener('change', () => edit((t) => { t.due = D.due.value; }));
+D.pri.addEventListener('change', () => edit((t) => { t.priority = +D.pri.value; }));
+D.proj.addEventListener('change', () => edit((t) => { t.project = D.proj.value; }));
+$('#subInput').addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || !e.target.value.trim()) return;
+  edit((t) => { (t.subs = t.subs || []).push({ id: uid(), text: e.target.value.trim(), done: false }); renderSubs(t); });
+  e.target.value = '';
+});
+D.subs.addEventListener('click', (e) => {
+  const row = e.target.closest('.sub'), a = e.target.closest('[data-a]'); if (!row || !a) return;
+  edit((t) => {
+    if (a.dataset.a === 'sdel') t.subs = t.subs.filter((s) => s.id !== row.dataset.sid);
+    else { const s = t.subs.find((s) => s.id === row.dataset.sid); s.done = !s.done; }
+    renderSubs(t);
+  });
+});
+$('#dClose').addEventListener('click', closeDrawer);
+$('#dDone').addEventListener('click', () => { const t = byId(state.open); if (t) { toggleDone(t.id); if (t.done) closeDrawer(); } });
+$('#dDelete').addEventListener('click', () => removeTask(state.open));
+$('#dFocus').addEventListener('click', () => {
+  const t = byId(state.open); if (!t) return;
+  T.task = t.title; if (!T.run) toggleTimer(); else drawTimer();
+  toast('Focus session started');
+});
+
+// Timer, theme, mobile menu
+$('#fToggle').addEventListener('click', toggleTimer);
+$('#fReset').addEventListener('click', resetTimer);
+const applyTheme = (th) => {
+  document.documentElement.dataset.theme = th;
+  $('#themeBtn').innerHTML = `${ic(th === 'dark' ? 'sun' : 'moon')}${th === 'dark' ? 'Light mode' : 'Dark mode'}`;
+};
+$('#themeBtn').addEventListener('click', () => { state.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; applyTheme(state.theme); save(); });
+$('#menuBtn').addEventListener('click', () => { $('#sidebar').classList.add('open'); $('#scrim').classList.add('show'); });
+$('#scrim').addEventListener('click', () => { $('#sidebar').classList.remove('open'); $('#scrim').classList.remove('show'); });
+
+// Keyboard shortcuts (ignored while typing)
+document.addEventListener('keydown', (e) => {
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+  if (e.key === 'Escape') { closeDrawer(); document.activeElement.blur(); return; }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'q') { e.preventDefault(); $('#qInput').focus(); }
+  if (e.key === '/') { e.preventDefault(); $('#search').focus(); }
+});
+
+/* ---------- Init ---------- */
+load();
+document.querySelectorAll('[data-ic]').forEach((el) => el.insertAdjacentHTML('afterbegin', ic(el.dataset.ic)));
+applyTheme(state.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+if (!state.view || (state.view.startsWith('p:') && !state.projects.some((p) => 'p:' + p.name === state.view))) state.view = 'all';
+render(); drawTimer();
+setInterval(render, 3600000); // refresh overdue state past midnight
+})();
+</script>
+</body>
+</html>
